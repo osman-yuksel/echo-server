@@ -1,21 +1,16 @@
 package providers
 
 import (
-	"crypto/sha256"
 	"echo-server/internal/auth"
-	"encoding/hex"
+	"echo-server/internal/database"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 
 	"github.com/golang-jwt/jwt"
 )
-
-var AUTH_SECRET = os.Getenv("AUTH_SECRET")
 
 type TokenSet struct {
 	AcessToken   string `json:"access_token"`
@@ -92,7 +87,7 @@ func (p OAuthProvider) GetRedirectURL() string {
 	clientId := p.ClientId
 	redirect := "http://localhost:8080/auth/callback/" + p.Id
 	scopes := strings.Join(p.Scopes, " ")
-	state := generateState()
+	state := auth.GenerateVerificationKey()
 
 	query := url.Values{}
 	query.Set("client_id", clientId)
@@ -105,29 +100,40 @@ func (p OAuthProvider) GetRedirectURL() string {
 }
 
 // HandleCallback implements auth.Provider.
-func (p OAuthProvider) HandleCallback(url *url.URL) (auth.Account, error) {
-	state := url.Query().Get("state")
+func (p OAuthProvider) HandleCallback(url *url.URL) (database.Account, database.User, error) {
+	// state := url.Query().Get("state")
 	code := url.Query().Get("code")
 
-	if !p.validateState(state) {
-		return auth.Account{}, fmt.Errorf("invalid state")
-	}
+	// if auth.ValidateVerificationKey(state) {
+	// 	// return database.Account{}, database.User{}, fmt.Errorf("invalid state")
+	// }
 
 	tokenSet, err := p.Exchange(code)
 	if err != nil {
-		return auth.Account{}, err
+		return database.Account{}, database.User{}, err
 	}
 
 	user, err := p.GetUserInfo(&tokenSet)
 	if err != nil {
-		return auth.Account{}, err
+		return database.Account{}, database.User{}, err
 	}
 
-	return auth.Account{
-		Id:    user.Id,
-		Email: user.Email,
-		Name:  user.Name,
-	}, nil
+	return database.Account{
+			Type:              p.Type,
+			Provider:          p.Id,
+			ProviderAccountId: user.Id,
+			RefreshToken:      tokenSet.RefreshToken,
+			AccessToken:       tokenSet.AcessToken,
+			ExpiresAt:         int64(tokenSet.ExpiresAt),
+			IdToken:           tokenSet.IDToken,
+			Scope:             tokenSet.Scope,
+			TokenType:         tokenSet.TokenType,
+		}, database.User{
+			Name:          user.Name,
+			Email:         user.Email,
+			EmailVerified: true,
+			Image:         user.Picture,
+		}, nil
 }
 
 func (p OAuthProvider) Exchange(code string) (TokenSet, error) {
@@ -171,40 +177,12 @@ func (p OAuthProvider) GetUserInfo(token *TokenSet) (UserInfo, error) {
 
 	claims := parsed.Claims.(jwt.MapClaims)
 	return UserInfo{
-		Id:    claims["sub"].(string),
-		Email: claims["email"].(string),
-		Name:  claims["name"].(string),
+		Id:        claims["sub"].(string),
+		Email:     claims["email"].(string),
+		Name:      claims["name"].(string),
+		FirstName: claims["given_name"].(string),
+		LastName:  claims["family_name"].(string),
+		Picture:   claims["picture"].(string),
+		Token:     token.AcessToken,
 	}, nil
-}
-
-func generateState() string {
-	s := randomString(16)
-
-	h := sha256.New()
-	h.Write([]byte(s + AUTH_SECRET))
-	sha1_hash := hex.EncodeToString(h.Sum(nil))[:32]
-
-	return s + "|" + sha1_hash
-}
-
-func (p OAuthProvider) validateState(state string) bool {
-	parts := strings.Split(state, "|")
-	if len(parts) != 2 {
-		return false
-	}
-
-	h := sha256.New()
-	h.Write([]byte(parts[0] + AUTH_SECRET))
-	sha1_hash := hex.EncodeToString(h.Sum(nil))[:32]
-	return parts[1] == sha1_hash
-}
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyz"
-
-func randomString(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
-	}
-	return string(b)
 }

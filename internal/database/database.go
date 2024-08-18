@@ -2,15 +2,16 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/joho/godotenv/autoload"
+	_ "github.com/lib/pq"
 )
 
 // Service represents a service that interacts with a database.
@@ -22,10 +23,18 @@ type Service interface {
 	// Close terminates the database connection.
 	// It returns an error if the connection cannot be closed.
 	Close() error
+
+	// CreateTables creates the necessary tables in the database.
+	CreateTables() error
+
+	// CreateUser creates a new user and account in the database.
+	CreateUser(account Account, user User) (User, error)
+
+	CreateSession(userId string, expires time.Time, sessionToken string) (Session, error)
 }
 
 type service struct {
-	db *sql.DB
+	db *sqlx.DB
 }
 
 var (
@@ -44,13 +53,18 @@ func New() Service {
 		return dbInstance
 	}
 	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&search_path=%s", username, password, host, port, database, schema)
-	db, err := sql.Open("pgx", connStr)
+	db, err := sqlx.Connect("postgres", connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
 	dbInstance = &service{
 		db: db,
 	}
+	err = dbInstance.CreateTables()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	return dbInstance
 }
 
@@ -112,4 +126,138 @@ func (s *service) Health() map[string]string {
 func (s *service) Close() error {
 	log.Printf("Disconnected from database: %s", database)
 	return s.db.Close()
+}
+
+type Account struct {
+	Id                int    `json:"id"`
+	UserId            int    `json:"userId"`
+	Type              string `json:"type"`
+	Provider          string `json:"provider"`
+	ProviderAccountId string `json:"providerAccountId"`
+	RefreshToken      string `json:"refreshToken"`
+	AccessToken       string `json:"accessToken"`
+	ExpiresAt         int64  `json:"expiresAt"`
+	IdToken           string `json:"idToken"`
+	Scope             string `json:"scope"`
+	TokenType         string `json:"tokenType"`
+}
+
+type Session struct {
+	Id           string    `json:"id"`
+	UserId       string    `json:"userId" db:"user_id"`
+	Expires      time.Time `json:"expires"`
+	SessionToken string    `json:"sessionToken" db:"session_token"`
+}
+
+type User struct {
+	Id            string `json:"id"`
+	Name          string `json:"name"`
+	Email         string `json:"email"`
+	EmailVerified bool   `json:"emailVerified" db:"email_verified"`
+	Image         string `json:"image"`
+}
+
+var authSchema = `
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS users (
+	id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+	name VARCHAR(255) NOT NULL,
+	email VARCHAR(255) NOT NULL,
+	email_verified BOOLEAN NOT NULL,
+	image TEXT
+);
+
+CREATE TABLE IF NOT EXISTS accounts (
+	id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+	user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	type VARCHAR(255) NOT NULL,
+	provider VARCHAR(255) NOT NULL,
+	provider_account_id VARCHAR(255) NOT NULL,
+	refresh_token TEXT,
+	access_token TEXT,
+	expires_at BIGINT,
+	id_token TEXT,
+	scope TEXT,
+	token_type TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+	id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+	user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	expires TIMESTAMP NOT NULL,
+	session_token TEXT NOT NULL
+);`
+
+func (s *service) CreateTables() error {
+	_, err := s.db.Exec(authSchema)
+	return err
+}
+
+func (s *service) CreateUser(account Account, user User) (User, error) {
+	userId := uuid.New()
+	log.Printf("Generated UUID: %s", userId.String())
+
+	tx, err := s.db.Beginx()
+	if err != nil {
+		log.Printf("Error starting transaction: %v", err)
+		return User{}, err
+	}
+
+	_, err = tx.Exec("INSERT INTO users (id, name, email, email_verified, image) VALUES ($1, $2, $3, $4, $5)", userId.String(), user.Name, user.Email, user.EmailVerified, user.Image)
+	if err != nil {
+		log.Printf("Error inserting into users: %v", err)
+		tx.Rollback()
+		return User{}, err
+	}
+
+	_, err = tx.Exec("INSERT INTO accounts (user_id, type, provider, provider_account_id, refresh_token, access_token, expires_at, id_token, scope, token_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)", userId.String(), account.Type, account.Provider, account.ProviderAccountId, account.RefreshToken, account.AccessToken, account.ExpiresAt, account.IdToken, account.Scope, account.TokenType)
+	if err != nil {
+		log.Printf("Error inserting into accounts: %v", err)
+		tx.Rollback()
+		return User{}, err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		log.Printf("Error committing transaction: %v", err)
+		return User{}, err
+	}
+
+	log.Println("User created successfully")
+	var u User
+	err = s.db.Get(&u, "SELECT * FROM users WHERE id = $1", userId.String())
+
+	if err != nil {
+		log.Printf("Error getting user: %v", err)
+		return User{}, err
+	}
+
+	return u, nil
+}
+
+func (s *service) CreateSession(userId string, expires time.Time, sessionToken string) (Session, error) {
+	var id string
+	rows, err := s.db.NamedQuery("INSERT INTO sessions (user_id, expires, session_token) VALUES (:user_id, :expires, :session_token) RETURNING id", map[string]interface{}{
+		"user_id":       userId,
+		"expires":       expires,
+		"session_token": sessionToken,
+	})
+
+	if err != nil {
+		log.Printf("Error inserting into sessions: %v", err)
+		return Session{}, err
+	}
+
+	if rows.Next() {
+		rows.Scan(&id)
+	}
+
+	log.Println("Session created successfully")
+	return Session{
+		Id:           id,
+		UserId:       userId,
+		Expires:      expires,
+		SessionToken: sessionToken,
+	}, nil
 }

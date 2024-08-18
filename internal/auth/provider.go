@@ -1,6 +1,9 @@
 package auth
 
-import "net/url"
+import (
+	"echo-server/internal/database"
+	"net/url"
+)
 
 type ProviderData struct {
 	Id     string `json:"id"`
@@ -14,13 +17,7 @@ type Provider interface {
 	GetId() string
 	GetPublicData() ProviderData
 	GetRedirectURL() string
-	HandleCallback(url *url.URL) (Account, error)
+	HandleCallback(url *url.URL) (database.Account, database.User, error)
 }
 
 type Providers map[string]Provider
-
-type Account struct {
-	Id    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}

@@ -9,8 +9,6 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
-var authService = auth.New(providers.Google())
-
 func (s *Server) RegisterRoutes() http.Handler {
 	e := echo.New()
 	// e.Use(middleware.Logger())
@@ -19,9 +17,11 @@ func (s *Server) RegisterRoutes() http.Handler {
 	e.GET("/", s.HelloWorldHandler)
 	e.GET("/health", s.healthHandler)
 
-	e.GET("/auth/providers", authService.GetProviders)
-	e.GET("/auth/login/:provider", authService.Login)
-	e.GET("/auth/callback/:provider", authService.Callback)
+	authService := auth.New(&s.db, providers.Google())
+	authGroup := e.Group("/auth")
+	authGroup.GET("/providers", authService.GetProviders)
+	authGroup.GET("/login/:provider", authService.Login)
+	authGroup.GET("/callback/:provider", authService.Callback)
 
 	return e
 }

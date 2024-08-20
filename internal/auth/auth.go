@@ -2,27 +2,34 @@ package auth
 
 import (
 	"echo-server/internal/database"
+	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/labstack/echo/v4"
 )
 
 type Service struct {
 	providers *Providers
-	db        *database.Service
+
+	db *database.Service
 }
 
-func New(db *database.Service, providers ...Provider) Service {
+type AuthServiceOptions struct {
+	Providers []Provider
+
+	Database *database.Service
+}
+
+func New(opts AuthServiceOptions) Service {
 	var providerMap = make(Providers)
 
-	for _, p := range providers {
+	for _, p := range opts.Providers {
 		providerMap[p.GetId()] = p
 	}
 
 	return Service{
 		providers: &providerMap,
-		db:        db,
+		db:        opts.Database,
 	}
 }
 
@@ -50,7 +57,8 @@ func (s *Service) Login(c echo.Context) error {
 		})
 	}
 
-	return c.Redirect(http.StatusTemporaryRedirect, provider.GetRedirectURL())
+	callbackUrl := fmt.Sprintf("%s/auth/callback/%s", c.Request().Host, provider.GetId())
+	return c.Redirect(http.StatusTemporaryRedirect, provider.GetRedirectURI(callbackUrl))
 }
 
 func (s *Service) Callback(c echo.Context) error {
@@ -62,23 +70,21 @@ func (s *Service) Callback(c echo.Context) error {
 		})
 	}
 
-	account, user, err := provider.HandleCallback(c.Request().URL)
+	profile, err := provider.HandleCallback(c.Request().URL)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
 	}
 
-	user, err = (*s.db).CreateUser(account, user)
+	user, err := (*s.db).CreateUser(profile)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": err.Error(),
 		})
 	}
 
-	// five minutes
-	exp := time.Now().Add(5 * time.Minute)
-	session, err := (*s.db).CreateSession(user.Id, exp, "sessionToken")
+	session, err := (*s.db).CreateSession(user)
 
 	if err != nil || session.Id == "" {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -87,5 +93,5 @@ func (s *Service) Callback(c echo.Context) error {
 	}
 
 	c.Response().Header().Set("Set-Cookie", "session="+session.Id+"; Path=/; HttpOnly; Secure; SameSite=Strict")
-	return c.JSON(http.StatusOK, account)
+	return c.JSON(http.StatusOK, user)
 }

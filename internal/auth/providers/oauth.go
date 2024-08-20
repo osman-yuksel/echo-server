@@ -2,7 +2,7 @@ package providers
 
 import (
 	"echo-server/internal/auth"
-	"echo-server/internal/database"
+	"echo-server/internal/models"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,57 +12,19 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-type TokenSet struct {
-	AcessToken   string `json:"access_token"`
-	IDToken      string `json:"id_token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresAt    int    `json:"expires_at"`
-	Scope        string `json:"scope"`
-	TokenType    string `json:"token_type"`
-}
-
-type IdToken struct {
-	Aud           string `json:"aud"`
-	Exp           int    `json:"exp"`
-	Iat           int    `json:"iat"`
-	Iss           string `json:"iss"`
-	Sub           string `json:"sub"`
-	AtHash        string `json:"at_hash"`
-	Azp           string `json:"azp"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	Name          string `json:"name"`
-	FamilName     string `json:"family_name"`
-	GivenName     string `json:"given_name"`
-	Picture       string `json:"picture"`
-	Profile       string `json:"profile"`
-	Locale        string `json:"locale"`
-	Nonce         string `json:"nonce"`
-}
-
 type OAuthProvider struct {
-	Id            string
-	Name          string
-	Issuer        string
-	Type          string
-	Image         string
-	Scopes        []string
-	Authorization string
-	Token         string
-	UserInfo      string
-	ClientId      string
-	ClientSecret  string
-}
-
-type UserInfo struct {
-	Id        string `json:"id"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	FirstName string `json:"given_name"`
-	LastName  string `json:"family_name"`
-	Link      string `json:"link"`
-	Picture   string `json:"picture"`
-	Token     string `json:"token"`
+	Id                string
+	Name              string
+	Issuer            string
+	Type              string
+	Image             string
+	Scopes            []string
+	Authorization     string
+	Token             string
+	UserInfo          string
+	ClientId          string
+	ClientSecret      string
+	AllowEmailLinking bool
 }
 
 // GetId implements auth.Provider.
@@ -82,16 +44,16 @@ func (p OAuthProvider) GetPublicData() auth.ProviderData {
 }
 
 // GetRedirectURL implements auth.Provider.
-func (p OAuthProvider) GetRedirectURL() string {
+func (p OAuthProvider) GetRedirectURI(callbackURL string) string {
 	authUrl := p.Authorization
 	clientId := p.ClientId
-	redirect := "http://localhost:8080/auth/callback/" + p.Id
 	scopes := strings.Join(p.Scopes, " ")
-	state := auth.GenerateVerificationKey()
+
+	state := auth.GenerateVerificationToken(16)
 
 	query := url.Values{}
 	query.Set("client_id", clientId)
-	query.Set("redirect_uri", redirect)
+	query.Set("redirect_uri", callbackURL)
 	query.Set("response_type", "code")
 	query.Set("scope", scopes)
 	query.Set("state", state)
@@ -100,43 +62,32 @@ func (p OAuthProvider) GetRedirectURL() string {
 }
 
 // HandleCallback implements auth.Provider.
-func (p OAuthProvider) HandleCallback(url *url.URL) (database.Account, database.User, error) {
-	// state := url.Query().Get("state")
+func (p OAuthProvider) HandleCallback(url *url.URL) (models.Profile, error) {
+	state := url.Query().Get("state")
 	code := url.Query().Get("code")
 
-	// if auth.ValidateVerificationKey(state) {
-	// 	// return database.Account{}, database.User{}, fmt.Errorf("invalid state")
-	// }
+	if auth.VerifyVerificationToken(state) {
+		return models.Profile{}, fmt.Errorf("invalid state")
+	}
 
 	tokenSet, err := p.Exchange(code)
 	if err != nil {
-		return database.Account{}, database.User{}, err
+		return models.Profile{}, err
 	}
 
 	user, err := p.GetUserInfo(&tokenSet)
 	if err != nil {
-		return database.Account{}, database.User{}, err
+		return models.Profile{}, err
 	}
 
-	return database.Account{
-			Type:              p.Type,
-			Provider:          p.Id,
-			ProviderAccountId: user.Id,
-			RefreshToken:      tokenSet.RefreshToken,
-			AccessToken:       tokenSet.AcessToken,
-			ExpiresAt:         int64(tokenSet.ExpiresAt),
-			IdToken:           tokenSet.IDToken,
-			Scope:             tokenSet.Scope,
-			TokenType:         tokenSet.TokenType,
-		}, database.User{
-			Name:          user.Name,
-			Email:         user.Email,
-			EmailVerified: true,
-			Image:         user.Picture,
-		}, nil
+	if p.AllowEmailLinking {
+		user.EmailVerified = true
+	}
+
+	return user, nil
 }
 
-func (p OAuthProvider) Exchange(code string) (TokenSet, error) {
+func (p OAuthProvider) Exchange(code string) (models.TokenSet, error) {
 	query := url.Values{}
 	query.Set("code", code)
 	query.Set("client_id", p.ClientId)
@@ -146,43 +97,93 @@ func (p OAuthProvider) Exchange(code string) (TokenSet, error) {
 
 	req, err := http.NewRequest("POST", p.Token, strings.NewReader(query.Encode()))
 	if err != nil {
-		return TokenSet{}, err
+		return models.TokenSet{}, err
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return TokenSet{}, err
+		return models.TokenSet{}, err
 	}
 	defer res.Body.Close()
 
-	var tokenSet TokenSet
+	var tokenSet models.TokenSet
 	if err := json.NewDecoder(res.Body).Decode(&tokenSet); err != nil {
-		return TokenSet{}, err
+		return models.TokenSet{}, err
 	}
 
 	return tokenSet, nil
 }
 
-func (p OAuthProvider) GetUserInfo(token *TokenSet) (UserInfo, error) {
-	if token.IDToken == "" {
-		return UserInfo{}, fmt.Errorf("missing id_token")
+func (p OAuthProvider) GetUserInfo(token *models.TokenSet) (models.Profile, error) {
+	if token.IdToken == "" {
+		return models.Profile{}, fmt.Errorf("missing id_token")
 	}
 
-	parsed, _, err := new(jwt.Parser).ParseUnverified(token.IDToken, jwt.MapClaims{})
+	parsed, _, err := new(jwt.Parser).ParseUnverified(token.IdToken, jwt.MapClaims{})
 	if err != nil {
-		return UserInfo{}, err
+		return models.Profile{}, err
 	}
 
 	claims := parsed.Claims.(jwt.MapClaims)
-	return UserInfo{
-		Id:        claims["sub"].(string),
-		Email:     claims["email"].(string),
-		Name:      claims["name"].(string),
-		FirstName: claims["given_name"].(string),
-		LastName:  claims["family_name"].(string),
-		Picture:   claims["picture"].(string),
-		Token:     token.AcessToken,
-	}, nil
+
+	var profile models.Profile
+
+	if claims["sub"] != nil {
+		profile.Sub = claims["sub"].(string)
+	}
+	if claims["email"] != nil {
+		profile.Email = claims["email"].(string)
+	}
+	if claims["name"] != nil {
+		profile.Name = claims["name"].(string)
+	}
+	if claims["given_name"] != nil {
+		profile.GivenName = claims["given_name"].(string)
+	}
+	if claims["family_name"] != nil {
+		profile.FamilyName = claims["family_name"].(string)
+	}
+	if claims["middle_name"] != nil {
+		profile.MiddleName = claims["middle_name"].(string)
+	}
+	if claims["nickname"] != nil {
+		profile.Nickname = claims["nickname"].(string)
+	}
+	if claims["profile"] != nil {
+		profile.Profile = claims["profile"].(string)
+	}
+	if claims["picture"] != nil {
+		profile.Picture = claims["picture"].(string)
+	}
+	if claims["website"] != nil {
+		profile.Website = claims["website"].(string)
+	}
+	if claims["email_verified"] != nil {
+		profile.EmailVerified = claims["email_verified"].(bool)
+	}
+	if claims["gender"] != nil {
+		profile.Gender = claims["gender"].(string)
+	}
+	if claims["birthdate"] != nil {
+		profile.Birthdate = claims["birthdate"].(string)
+	}
+	if claims["zoneinfo"] != nil {
+		profile.Zoneinfo = claims["zoneinfo"].(string)
+	}
+	if claims["locale"] != nil {
+		profile.Locale = claims["locale"].(string)
+	}
+	if claims["phone_number"] != nil {
+		profile.PhoneNumber = claims["phone_number"].(string)
+	}
+	if claims["address"] != nil {
+		profile.Address = claims["address"].(string)
+	}
+	if claims["updated_at"] != nil {
+		profile.UpdatedAt = claims["updated_at"].(string)
+	}
+
+	return profile, nil
 }

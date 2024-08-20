@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"echo-server/internal/database"
+	"echo-server/internal/models"
 	"net/url"
 )
 
@@ -16,8 +16,8 @@ type ProviderData struct {
 type Provider interface {
 	GetId() string
 	GetPublicData() ProviderData
-	GetRedirectURL() string
-	HandleCallback(url *url.URL) (database.Account, database.User, error)
+	GetRedirectURI(baseUrl string) string
+	HandleCallback(url *url.URL) (models.Profile, error)
 }
 
 type Providers map[string]Provider

@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"echo-server/internal/models"
 	"fmt"
 	"log"
 	"os"
@@ -28,9 +29,10 @@ type Service interface {
 	CreateTables() error
 
 	// CreateUser creates a new user and account in the database.
-	CreateUser(account Account, user User) (User, error)
+	CreateUser(profile models.Profile) (models.User, error)
 
-	CreateSession(userId string, expires time.Time, sessionToken string) (Session, error)
+	// CreateSession creates a new session for a user.
+	CreateSession(user models.User) (models.Session, error)
 }
 
 type service struct {
@@ -128,35 +130,6 @@ func (s *service) Close() error {
 	return s.db.Close()
 }
 
-type Account struct {
-	Id                int    `json:"id"`
-	UserId            int    `json:"userId"`
-	Type              string `json:"type"`
-	Provider          string `json:"provider"`
-	ProviderAccountId string `json:"providerAccountId"`
-	RefreshToken      string `json:"refreshToken"`
-	AccessToken       string `json:"accessToken"`
-	ExpiresAt         int64  `json:"expiresAt"`
-	IdToken           string `json:"idToken"`
-	Scope             string `json:"scope"`
-	TokenType         string `json:"tokenType"`
-}
-
-type Session struct {
-	Id           string    `json:"id"`
-	UserId       string    `json:"userId" db:"user_id"`
-	Expires      time.Time `json:"expires"`
-	SessionToken string    `json:"sessionToken" db:"session_token"`
-}
-
-type User struct {
-	Id            string `json:"id"`
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"emailVerified" db:"email_verified"`
-	Image         string `json:"image"`
-}
-
 var authSchema = `
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
@@ -194,70 +167,72 @@ func (s *service) CreateTables() error {
 	return err
 }
 
-func (s *service) CreateUser(account Account, user User) (User, error) {
+func (s *service) CreateUser(profile models.Profile) (models.User, error) {
 	userId := uuid.New()
 	log.Printf("Generated UUID: %s", userId.String())
 
 	tx, err := s.db.Beginx()
 	if err != nil {
 		log.Printf("Error starting transaction: %v", err)
-		return User{}, err
+		return models.User{}, err
 	}
 
-	_, err = tx.Exec("INSERT INTO users (id, name, email, email_verified, image) VALUES ($1, $2, $3, $4, $5)", userId.String(), user.Name, user.Email, user.EmailVerified, user.Image)
+	_, err = tx.Exec("INSERT INTO users (id, name, email, email_verified, image) VALUES ($1, $2, $3, $4, $5)", profile.Id, profile.Name, profile.Email, profile.EmailVerified, profile.Picture)
 	if err != nil {
 		log.Printf("Error inserting into users: %v", err)
 		tx.Rollback()
-		return User{}, err
+		return models.User{}, err
 	}
 
-	_, err = tx.Exec("INSERT INTO accounts (user_id, type, provider, provider_account_id, refresh_token, access_token, expires_at, id_token, scope, token_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)", userId.String(), account.Type, account.Provider, account.ProviderAccountId, account.RefreshToken, account.AccessToken, account.ExpiresAt, account.IdToken, account.Scope, account.TokenType)
-	if err != nil {
-		log.Printf("Error inserting into accounts: %v", err)
-		tx.Rollback()
-		return User{}, err
-	}
+	// _, err = tx.Exec("INSERT INTO accounts (user_id, type, provider, provider_account_id, refresh_token, access_token, expires_at, id_token, scope, token_type) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)", userId.String(), profile.Type, profile.Provider, profile.ProviderAccountId, profile.RefreshToken, profile.AccessToken, profile.ExpiresAt, idToken.IdToken, profile.Scope, profile.TokenType)
+	// if err != nil {
+	// 	log.Printf("Error inserting into accounts: %v", err)
+	// 	tx.Rollback()
+	// 	return User{}, err
+	// }
 
 	err = tx.Commit()
 	if err != nil {
 		log.Printf("Error committing transaction: %v", err)
-		return User{}, err
+		return models.User{}, err
 	}
 
 	log.Println("User created successfully")
-	var u User
+	var u models.User
 	err = s.db.Get(&u, "SELECT * FROM users WHERE id = $1", userId.String())
 
 	if err != nil {
 		log.Printf("Error getting user: %v", err)
-		return User{}, err
+		return models.User{}, err
 	}
 
 	return u, nil
 }
 
-func (s *service) CreateSession(userId string, expires time.Time, sessionToken string) (Session, error) {
-	var id string
+func (s *service) CreateSession(user models.User) (models.Session, error) {
+
+	expires := time.Now().Add(5 * time.Minute)
 	rows, err := s.db.NamedQuery("INSERT INTO sessions (user_id, expires, session_token) VALUES (:user_id, :expires, :session_token) RETURNING id", map[string]interface{}{
-		"user_id":       userId,
-		"expires":       expires,
-		"session_token": sessionToken,
+		"user_id":       user.Id,
+		"expires":       expires.Unix(),
+		"session_token": "sessionToken",
 	})
 
 	if err != nil {
 		log.Printf("Error inserting into sessions: %v", err)
-		return Session{}, err
+		return models.Session{}, err
 	}
 
+	var sessionId string
 	if rows.Next() {
-		rows.Scan(&id)
+		rows.Scan(&sessionId)
 	}
 
 	log.Println("Session created successfully")
-	return Session{
-		Id:           id,
-		UserId:       userId,
+	return models.Session{
+		Id:           sessionId,
+		UserId:       user.Id,
 		Expires:      expires,
-		SessionToken: sessionToken,
+		SessionToken: "sessionToken",
 	}, nil
 }

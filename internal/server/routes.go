@@ -17,7 +17,12 @@ func (s *Server) RegisterRoutes() http.Handler {
 	e.GET("/", s.HelloWorldHandler)
 	e.GET("/health", s.healthHandler)
 
-	authService := auth.New(&s.db, providers.Google())
+	authService := auth.New(auth.AuthServiceOptions{
+		Providers: []auth.Provider{
+			providers.Google(),
+		},
+		Database: &s.db,
+	})
 	authGroup := e.Group("/auth")
 	authGroup.GET("/providers", authService.GetProviders)
 	authGroup.GET("/login/:provider", authService.Login)

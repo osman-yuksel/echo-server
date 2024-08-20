@@ -1,43 +1,46 @@
 package auth
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"math/rand"
 	"os"
 	"strings"
 )
 
 var AUTH_SECRET = os.Getenv("AUTH_SECRET")
 
-func GenerateVerificationKey() string {
-	s := randomString(16)
-
-	h := sha256.New()
-	h.Write([]byte(s + AUTH_SECRET))
-	sha1_hash := hex.EncodeToString(h.Sum(nil))[:32]
-
-	return s + "|" + sha1_hash
+// `size` is the base key size, not includes hash
+func GenerateVerificationToken(size int) string {
+	s := randomString(size)
+	h := hashVerificationKey(s)
+	return s + "|" + h
 }
 
-func ValidateVerificationKey(state string) bool {
-	parts := strings.Split(state, "|")
+func VerifyVerificationToken(token string) bool {
+	parts := strings.Split(token, "|")
 	if len(parts) != 2 {
 		return false
 	}
 
-	h := sha256.New()
-	h.Write([]byte(parts[0] + AUTH_SECRET))
-	sha1_hash := hex.EncodeToString(h.Sum(nil))[:32]
-	return parts[1] == sha1_hash
+	h := hashVerificationKey(parts[0])
+	return h == parts[1]
 }
 
-const letterBytes = "abcdefghijklmnopqrstuvwxyz"
+// hashVerificationKey creates an HMAC hash of the input string using the secret key
+func hashVerificationKey(s string) string {
+	secretKey := []byte(AUTH_SECRET)
+	h := hmac.New(sha256.New, secretKey)
+	h.Write([]byte(s))
+	return hex.EncodeToString(h.Sum(nil))
+}
 
-func randomString(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+func randomString(size int) string {
+	b := make([]byte, size)
+	_, err := rand.Read(b)
+	if err != nil {
+		panic(err)
 	}
-	return string(b)
+	return hex.EncodeToString(b)[:size]
 }

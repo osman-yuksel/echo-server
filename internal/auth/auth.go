@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"echo-server/internal/auth/adapters"
 	"fmt"
 	"net/http"
 	"time"
@@ -11,12 +10,12 @@ import (
 
 type Service struct {
 	providers *Providers
-	adapter   *adapters.Adapter
+	adapter   *Adapter
 }
 
 type AuthServiceOptions struct {
 	Providers []Provider
-	Adapter   adapters.Adapter
+	Adapter   Adapter
 }
 
 func New(opts AuthServiceOptions) Service {
@@ -79,13 +78,13 @@ func (s *Service) Callback(c echo.Context) error {
 		return fail(err)
 	}
 
-	user := adapters.User{
+	user := User{
 		Name:  profile.Name,
 		Email: profile.Email,
 		Image: profile.Picture,
 	}
 
-	account := adapters.Account{
+	account := Account{
 		Type:              provider.GetType(),
 		Provider:          provider.GetId(),
 		ProviderAccountId: profile.Id,

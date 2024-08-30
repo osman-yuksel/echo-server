@@ -18,12 +18,12 @@ func (s *Server) RegisterRoutes() http.Handler {
 	e.GET("/", s.HelloWorldHandler)
 	e.GET("/health", s.healthHandler)
 
-	postgres := adapters.Postgres{}
+	memory := adapters.Memory{}
 	authService := auth.New(auth.AuthServiceOptions{
 		Providers: []auth.Provider{
 			providers.Google(),
 		},
-		Adapter: postgres.New(),
+		Adapter: memory.New(),
 	})
 	authGroup := e.Group("/auth")
 	authGroup.GET("/providers", authService.GetProviders)

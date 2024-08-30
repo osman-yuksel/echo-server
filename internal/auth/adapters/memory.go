@@ -1,48 +1,44 @@
 package adapters
 
 import (
-	"echo-server/internal/database"
+	"echo-server/internal/auth"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jmoiron/sqlx"
 )
 
-type Postgres struct {
-	db *sqlx.DB
+type Memory struct{}
+
+var users = []auth.User{}
+var accounts = []auth.Account{}
+var sessions = []auth.Session{}
+
+func (a Memory) New() auth.Adapter {
+	return Memory{}
 }
 
-var users = []User{}
-var accounts = []Account{}
-var sessions = []Session{}
-
-func (a Postgres) New() Adapter {
-	db := database.New().GetDB()
-	return Postgres{db: db}
-}
-
-func (s Postgres) GetUserById(id string) (User, error) {
+func (s Memory) GetUserById(id string) (auth.User, error) {
 	for _, u := range users {
 		if u.Id == id {
 			return u, nil
 		}
 	}
 
-	return User{}, fmt.Errorf("user not found")
+	return auth.User{}, fmt.Errorf("user not found")
 }
 
-func (s Postgres) GetUserByEmail(email string) (User, error) {
+func (s Memory) GetUserByEmail(email string) (auth.User, error) {
 	for _, u := range users {
 		if u.Email == email {
 			return u, nil
 		}
 	}
 
-	return User{}, fmt.Errorf("user not found")
+	return auth.User{}, fmt.Errorf("user not found")
 }
 
-func (s Postgres) GetUserBySessionToken(token string) (User, error) {
+func (s Memory) GetUserBySessionToken(token string) (auth.User, error) {
 	for _, s := range sessions {
 		if s.SessionToken == token {
 			for _, u := range users {
@@ -54,17 +50,17 @@ func (s Postgres) GetUserBySessionToken(token string) (User, error) {
 		}
 	}
 
-	return User{}, fmt.Errorf("user not found")
+	return auth.User{}, fmt.Errorf("user not found")
 }
 
-func (s Postgres) CreateUser(u User, a Account) (User, error) {
+func (s Memory) CreateUser(u auth.User, a auth.Account) (auth.User, error) {
 	for _, acc := range accounts {
 		if acc.ProviderAccountId == a.ProviderAccountId {
 			for _, user := range users {
 				if user.Id == acc.UserId {
 					return user, nil
 				} else {
-					return User{}, fmt.Errorf("user not found")
+					return auth.User{}, fmt.Errorf("user not found")
 				}
 			}
 			break
@@ -72,7 +68,7 @@ func (s Postgres) CreateUser(u User, a Account) (User, error) {
 	}
 
 	userId := uuid.New()
-	newUser := User{
+	newUser := auth.User{
 		Id:            userId.String(),
 		Name:          u.Name,
 		Email:         u.Email,
@@ -82,7 +78,7 @@ func (s Postgres) CreateUser(u User, a Account) (User, error) {
 	users = append(users, newUser)
 
 	accountId := uuid.New()
-	accounts = append(accounts, Account{
+	accounts = append(accounts, auth.Account{
 		Id:                accountId.String(),
 		UserId:            userId.String(),
 		Type:              a.Type,
@@ -100,9 +96,9 @@ func (s Postgres) CreateUser(u User, a Account) (User, error) {
 	return newUser, nil
 }
 
-func (s Postgres) CreateSession(user User) (Session, error) {
+func (s Memory) CreateSession(user auth.User) (auth.Session, error) {
 	sessionToken := uuid.New()
-	newSession := Session{
+	newSession := auth.Session{
 		SessionToken: sessionToken.String(),
 		UserId:       user.Id,
 		Expires:      time.Now().Add(5 * time.Minute),

@@ -2,7 +2,6 @@ package providers
 
 import (
 	"echo-server/internal/auth"
-	"echo-server/internal/models"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -32,6 +31,11 @@ func (p OAuthProvider) GetId() string {
 	return p.Id
 }
 
+// GetType implements auth.Provider.
+func (p OAuthProvider) GetType() string {
+	return p.Type
+}
+
 // GetPublicData implements auth.Provider.
 func (p OAuthProvider) GetPublicData() auth.ProviderData {
 	return auth.ProviderData{
@@ -44,7 +48,7 @@ func (p OAuthProvider) GetPublicData() auth.ProviderData {
 }
 
 // GetRedirectURL implements auth.Provider.
-func (p OAuthProvider) GetRedirectURI(callbackURL string) string {
+func (p OAuthProvider) GetRedirectURL(base string) string {
 	authUrl := p.Authorization
 	clientId := p.ClientId
 	scopes := strings.Join(p.Scopes, " ")
@@ -53,7 +57,7 @@ func (p OAuthProvider) GetRedirectURI(callbackURL string) string {
 
 	query := url.Values{}
 	query.Set("client_id", clientId)
-	query.Set("redirect_uri", callbackURL)
+	query.Set("redirect_uri", base)
 	query.Set("response_type", "code")
 	query.Set("scope", scopes)
 	query.Set("state", state)
@@ -62,32 +66,36 @@ func (p OAuthProvider) GetRedirectURI(callbackURL string) string {
 }
 
 // HandleCallback implements auth.Provider.
-func (p OAuthProvider) HandleCallback(url *url.URL) (models.Profile, error) {
-	state := url.Query().Get("state")
+func (p OAuthProvider) HandleCallback(url *url.URL) (auth.Profile, auth.TokenSet, error) {
+	// state := url.Query().Get("state")
 	code := url.Query().Get("code")
 
-	if auth.VerifyVerificationToken(state) {
-		return models.Profile{}, fmt.Errorf("invalid state")
+	fail := func(err error) (auth.Profile, auth.TokenSet, error) {
+		return auth.Profile{}, auth.TokenSet{}, err
 	}
+
+	// if auth.VerifyVerificationToken(state) {
+	// 	return fail(fmt.Errorf("invalid state"))
+	// }
 
 	tokenSet, err := p.Exchange(code)
 	if err != nil {
-		return models.Profile{}, err
+		return fail(err)
 	}
 
-	user, err := p.GetUserInfo(&tokenSet)
+	profile, err := p.GetProfile(&tokenSet)
 	if err != nil {
-		return models.Profile{}, err
+		return fail(err)
 	}
 
 	if p.AllowEmailLinking {
-		user.EmailVerified = true
+		profile.EmailVerified = true
 	}
 
-	return user, nil
+	return profile, tokenSet, nil
 }
 
-func (p OAuthProvider) Exchange(code string) (models.TokenSet, error) {
+func (p OAuthProvider) Exchange(code string) (auth.TokenSet, error) {
 	query := url.Values{}
 	query.Set("code", code)
 	query.Set("client_id", p.ClientId)
@@ -95,42 +103,51 @@ func (p OAuthProvider) Exchange(code string) (models.TokenSet, error) {
 	query.Set("redirect_uri", "http://localhost:8080/auth/callback/"+p.Id)
 	query.Set("grant_type", "authorization_code")
 
+	fail := func(err error) (auth.TokenSet, error) {
+		return auth.TokenSet{}, err
+	}
+
 	req, err := http.NewRequest("POST", p.Token, strings.NewReader(query.Encode()))
 	if err != nil {
-		return models.TokenSet{}, err
+		return fail(err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return models.TokenSet{}, err
+		return fail(err)
 	}
 	defer res.Body.Close()
 
-	var tokenSet models.TokenSet
+	var tokenSet auth.TokenSet
 	if err := json.NewDecoder(res.Body).Decode(&tokenSet); err != nil {
-		return models.TokenSet{}, err
+		return fail(err)
 	}
 
 	return tokenSet, nil
 }
 
-func (p OAuthProvider) GetUserInfo(token *models.TokenSet) (models.Profile, error) {
+func (p OAuthProvider) GetProfile(token *auth.TokenSet) (auth.Profile, error) {
+	fail := func(err error) (auth.Profile, error) {
+		return auth.Profile{}, err
+	}
+
 	if token.IdToken == "" {
-		return models.Profile{}, fmt.Errorf("missing id_token")
+		return fail(fmt.Errorf("missing id_token"))
 	}
 
 	parsed, _, err := new(jwt.Parser).ParseUnverified(token.IdToken, jwt.MapClaims{})
 	if err != nil {
-		return models.Profile{}, err
+		return fail(err)
 	}
 
 	claims := parsed.Claims.(jwt.MapClaims)
 
-	var profile models.Profile
+	var profile auth.Profile
 
 	if claims["sub"] != nil {
+		profile.Id = claims["sub"].(string)
 		profile.Sub = claims["sub"].(string)
 	}
 	if claims["email"] != nil {

@@ -1,35 +1,4 @@
-package models
-
-import "time"
-
-type Account struct {
-	Id                int    `json:"id"`
-	UserId            int    `json:"userId"`
-	Type              string `json:"type"`
-	Provider          string `json:"provider"`
-	ProviderAccountId string `json:"providerAccountId"`
-	RefreshToken      string `json:"refreshToken"`
-	AccessToken       string `json:"accessToken"`
-	ExpiresAt         int64  `json:"expiresAt"`
-	IdToken           string `json:"idToken"`
-	Scope             string `json:"scope"`
-	TokenType         string `json:"tokenType"`
-}
-
-type Session struct {
-	Id           string    `json:"id"`
-	UserId       string    `json:"userId" db:"user_id"`
-	Expires      time.Time `json:"expires"`
-	SessionToken string    `json:"sessionToken" db:"session_token"`
-}
-
-type User struct {
-	Id            string `json:"id"`
-	Name          string `json:"name"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"emailVerified" db:"email_verified"`
-	Image         string `json:"image"`
-}
+package auth
 
 type Profile struct {
 	Id            string `json:"id,omitempty"`
@@ -73,7 +42,7 @@ type IdToken struct {
 }
 
 type TokenSet struct {
-	AcessToken   string `json:"access_token"`
+	AccessToken  string `json:"access_token"`
 	IdToken      string `json:"id_token"`
 	RefreshToken string `json:"refresh_token"`
 	ExpiresAt    int    `json:"expires_at"`

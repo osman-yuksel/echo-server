@@ -2,6 +2,7 @@ package server
 
 import (
 	"echo-server/internal/auth"
+	"echo-server/internal/auth/adapters"
 	"echo-server/internal/auth/providers"
 	"net/http"
 
@@ -11,22 +12,24 @@ import (
 
 func (s *Server) RegisterRoutes() http.Handler {
 	e := echo.New()
-	// e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
+	e.Use(middleware.Logger())
+	// e.Use(middleware.Recover())
 
 	e.GET("/", s.HelloWorldHandler)
 	e.GET("/health", s.healthHandler)
 
+	postgres := adapters.Postgres{}
 	authService := auth.New(auth.AuthServiceOptions{
 		Providers: []auth.Provider{
 			providers.Google(),
 		},
-		Database: &s.db,
+		Adapter: postgres.New(),
 	})
 	authGroup := e.Group("/auth")
 	authGroup.GET("/providers", authService.GetProviders)
 	authGroup.GET("/login/:provider", authService.Login)
 	authGroup.GET("/callback/:provider", authService.Callback)
+	authGroup.GET("/session", authService.Session)
 
 	return e
 }

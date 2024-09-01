@@ -3,7 +3,6 @@ package auth
 import (
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/labstack/echo/v4"
 )
@@ -31,7 +30,7 @@ func New(opts AuthServiceOptions) Service {
 	}
 }
 
-func (s *Service) GetProviders(c echo.Context) error {
+func (s *Service) Providers(c echo.Context) error {
 	providers := make([]interface{}, 0, len(*s.providers))
 
 	for _, p := range *s.providers {
@@ -73,7 +72,7 @@ func (s *Service) Callback(c echo.Context) error {
 		return fail(fmt.Errorf("provider not found"))
 	}
 
-	profile, tokenSet, err := provider.HandleCallback(c.Request().URL)
+	profile, tokenSet, err := provider.HandleCallback(c.Request())
 	if err != nil {
 		return fail(err)
 	}
@@ -107,7 +106,15 @@ func (s *Service) Callback(c echo.Context) error {
 	}
 	fmt.Println(session)
 
-	c.Response().Header().Set("Set-Cookie", "session="+session.SessionToken+"; Path=/; HttpOnly; Secure; SameSite=Strict"+"; Expires="+session.Expires.Format(time.RFC1123))
+	c.SetCookie(&http.Cookie{
+		Name:     "session",
+		Value:    session.SessionToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+		Expires:  session.Expires,
+	})
 	return c.JSON(http.StatusOK, u)
 }
 
@@ -119,7 +126,7 @@ func (s *Service) Session(c echo.Context) error {
 			sessionToken = cookie.Value
 		}
 	}
-	fmt.Println(sessionToken, cookies)
+
 	user, err := (*s.adapter).GetUserBySessionToken(sessionToken)
 	if err != nil {
 		return c.JSON(http.StatusUnauthorized, map[string]string{

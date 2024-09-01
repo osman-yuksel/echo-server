@@ -53,7 +53,9 @@ func (p OAuthProvider) GetRedirectURL(base string) string {
 	clientId := p.ClientId
 	scopes := strings.Join(p.Scopes, " ")
 
-	state := auth.GenerateVerificationToken(16)
+	state := auth.GenerateHMACToken(16)
+
+	fmt.Println(state, "")
 
 	query := url.Values{}
 	query.Set("client_id", clientId)
@@ -66,17 +68,18 @@ func (p OAuthProvider) GetRedirectURL(base string) string {
 }
 
 // HandleCallback implements auth.Provider.
-func (p OAuthProvider) HandleCallback(url *url.URL) (auth.Profile, auth.TokenSet, error) {
-	// state := url.Query().Get("state")
-	code := url.Query().Get("code")
+func (p OAuthProvider) HandleCallback(req *http.Request) (auth.Profile, auth.TokenSet, error) {
+	state := req.URL.Query().Get("state")
+	code := req.URL.Query().Get("code")
+	fmt.Println(state, code)
 
 	fail := func(err error) (auth.Profile, auth.TokenSet, error) {
 		return auth.Profile{}, auth.TokenSet{}, err
 	}
 
-	// if auth.VerifyVerificationToken(state) {
-	// 	return fail(fmt.Errorf("invalid state"))
-	// }
+	if !auth.VerifyHMACToken(state) {
+		return fail(fmt.Errorf("invalid state"))
+	}
 
 	tokenSet, err := p.Exchange(code)
 	if err != nil {
@@ -144,63 +147,31 @@ func (p OAuthProvider) GetProfile(token *auth.TokenSet) (auth.Profile, error) {
 
 	claims := parsed.Claims.(jwt.MapClaims)
 
-	var profile auth.Profile
+	mapClaimsToProfile := func(key string, target *string) {
+		if val, ok := claims[key]; ok {
+			*target = val.(string)
+		}
+	}
 
-	if claims["sub"] != nil {
-		profile.Id = claims["sub"].(string)
-		profile.Sub = claims["sub"].(string)
-	}
-	if claims["email"] != nil {
-		profile.Email = claims["email"].(string)
-	}
-	if claims["name"] != nil {
-		profile.Name = claims["name"].(string)
-	}
-	if claims["given_name"] != nil {
-		profile.GivenName = claims["given_name"].(string)
-	}
-	if claims["family_name"] != nil {
-		profile.FamilyName = claims["family_name"].(string)
-	}
-	if claims["middle_name"] != nil {
-		profile.MiddleName = claims["middle_name"].(string)
-	}
-	if claims["nickname"] != nil {
-		profile.Nickname = claims["nickname"].(string)
-	}
-	if claims["profile"] != nil {
-		profile.Profile = claims["profile"].(string)
-	}
-	if claims["picture"] != nil {
-		profile.Picture = claims["picture"].(string)
-	}
-	if claims["website"] != nil {
-		profile.Website = claims["website"].(string)
-	}
-	if claims["email_verified"] != nil {
-		profile.EmailVerified = claims["email_verified"].(bool)
-	}
-	if claims["gender"] != nil {
-		profile.Gender = claims["gender"].(string)
-	}
-	if claims["birthdate"] != nil {
-		profile.Birthdate = claims["birthdate"].(string)
-	}
-	if claims["zoneinfo"] != nil {
-		profile.Zoneinfo = claims["zoneinfo"].(string)
-	}
-	if claims["locale"] != nil {
-		profile.Locale = claims["locale"].(string)
-	}
-	if claims["phone_number"] != nil {
-		profile.PhoneNumber = claims["phone_number"].(string)
-	}
-	if claims["address"] != nil {
-		profile.Address = claims["address"].(string)
-	}
-	if claims["updated_at"] != nil {
-		profile.UpdatedAt = claims["updated_at"].(string)
-	}
+	var profile auth.Profile
+	mapClaimsToProfile("sub", &profile.Id)
+	mapClaimsToProfile("sub", &profile.Sub)
+	mapClaimsToProfile("email", &profile.Email)
+	mapClaimsToProfile("name", &profile.Name)
+	mapClaimsToProfile("given_name", &profile.GivenName)
+	mapClaimsToProfile("family_name", &profile.FamilyName)
+	mapClaimsToProfile("middle_name", &profile.MiddleName)
+	mapClaimsToProfile("nickname", &profile.Nickname)
+	mapClaimsToProfile("profile", &profile.Profile)
+	mapClaimsToProfile("picture", &profile.Picture)
+	mapClaimsToProfile("website", &profile.Website)
+	mapClaimsToProfile("gender", &profile.Gender)
+	mapClaimsToProfile("birthdate", &profile.Birthdate)
+	mapClaimsToProfile("zoneinfo", &profile.Zoneinfo)
+	mapClaimsToProfile("locale", &profile.Locale)
+	mapClaimsToProfile("phone_number", &profile.PhoneNumber)
+	mapClaimsToProfile("address", &profile.Address)
+	mapClaimsToProfile("updated_at", &profile.UpdatedAt)
 
 	return profile, nil
 }

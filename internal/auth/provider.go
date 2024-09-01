@@ -1,8 +1,6 @@
 package auth
 
-import (
-	"net/url"
-)
+import "net/http"
 
 type ProviderData struct {
 	Id     string `json:"id"`
@@ -17,7 +15,7 @@ type Provider interface {
 	GetType() string
 	GetPublicData() ProviderData
 	GetRedirectURL(base string) string
-	HandleCallback(url *url.URL) (Profile, TokenSet, error)
+	HandleCallback(request *http.Request) (Profile, TokenSet, error)
 }
 
 type Providers map[string]Provider

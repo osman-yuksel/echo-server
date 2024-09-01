@@ -24,7 +24,6 @@ type Account struct {
 	IdToken           string  `json:"idToken" db:"id_token"`
 	Scope             string  `json:"scope"`
 	TokenType         string  `json:"tokenType" db:"token_type"`
-	SessionState      *string `json:"sessionState" db:"session_state"`
 }
 
 type User struct {

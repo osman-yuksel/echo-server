@@ -8,17 +8,17 @@ import (
 	"github.com/google/uuid"
 )
 
-type Memory struct{}
+type Memory_internal struct{}
 
 var users = []auth.User{}
 var accounts = []auth.Account{}
 var sessions = []auth.Session{}
 
-func (a Memory) New() auth.Adapter {
-	return Memory{}
+func Memory() Memory_internal {
+	return Memory_internal{}
 }
 
-func (s Memory) GetUserById(id string) (auth.User, error) {
+func (a Memory_internal) GetUserById(id string) (auth.User, error) {
 	for _, u := range users {
 		if u.Id == id {
 			return u, nil
@@ -28,7 +28,7 @@ func (s Memory) GetUserById(id string) (auth.User, error) {
 	return auth.User{}, fmt.Errorf("user not found")
 }
 
-func (s Memory) GetUserByEmail(email string) (auth.User, error) {
+func (a Memory_internal) GetUserByEmail(email string) (auth.User, error) {
 	for _, u := range users {
 		if u.Email == email {
 			return u, nil
@@ -38,7 +38,7 @@ func (s Memory) GetUserByEmail(email string) (auth.User, error) {
 	return auth.User{}, fmt.Errorf("user not found")
 }
 
-func (s Memory) GetUserBySessionToken(token string) (auth.User, error) {
+func (a Memory_internal) GetUserBySessionToken(token string) (auth.User, error) {
 	for _, s := range sessions {
 		if s.SessionToken == token {
 			for _, u := range users {
@@ -53,9 +53,9 @@ func (s Memory) GetUserBySessionToken(token string) (auth.User, error) {
 	return auth.User{}, fmt.Errorf("user not found")
 }
 
-func (s Memory) CreateUser(u auth.User, a auth.Account) (auth.User, error) {
-	for _, acc := range accounts {
-		if acc.ProviderAccountId == a.ProviderAccountId {
+func (a Memory_internal) CreateUser(u auth.User, acc auth.Account) (auth.User, error) {
+	for _, account := range accounts {
+		if account.ProviderAccountId == acc.ProviderAccountId {
 			for _, user := range users {
 				if user.Id == acc.UserId {
 					return user, nil
@@ -81,22 +81,21 @@ func (s Memory) CreateUser(u auth.User, a auth.Account) (auth.User, error) {
 	accounts = append(accounts, auth.Account{
 		Id:                accountId.String(),
 		UserId:            userId.String(),
-		Type:              a.Type,
-		Provider:          a.Provider,
-		ProviderAccountId: a.ProviderAccountId,
-		RefreshToken:      a.RefreshToken,
-		AccessToken:       a.AccessToken,
-		ExpiresAt:         a.ExpiresAt,
-		IdToken:           a.IdToken,
-		Scope:             a.Scope,
-		TokenType:         a.TokenType,
-		SessionState:      a.SessionState,
+		Type:              acc.Type,
+		Provider:          acc.Provider,
+		ProviderAccountId: acc.ProviderAccountId,
+		RefreshToken:      acc.RefreshToken,
+		AccessToken:       acc.AccessToken,
+		ExpiresAt:         acc.ExpiresAt,
+		IdToken:           acc.IdToken,
+		Scope:             acc.Scope,
+		TokenType:         acc.TokenType,
 	})
 
 	return newUser, nil
 }
 
-func (s Memory) CreateSession(user auth.User) (auth.Session, error) {
+func (a Memory_internal) CreateSession(user auth.User) (auth.Session, error) {
 	sessionToken := uuid.New()
 	newSession := auth.Session{
 		SessionToken: sessionToken.String(),

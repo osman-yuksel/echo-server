@@ -10,6 +10,13 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 )
 
+var authService = auth.New(auth.AuthServiceOptions{
+	Providers: []auth.Provider{
+		providers.Google(),
+	},
+	Adapter: adapters.SQLite("auth.db"),
+})
+
 func (s *Server) RegisterRoutes() http.Handler {
 	e := echo.New()
 	e.Use(middleware.Logger())
@@ -18,15 +25,8 @@ func (s *Server) RegisterRoutes() http.Handler {
 	e.GET("/", s.HelloWorldHandler)
 	e.GET("/health", s.healthHandler)
 
-	memory := adapters.Memory{}
-	authService := auth.New(auth.AuthServiceOptions{
-		Providers: []auth.Provider{
-			providers.Google(),
-		},
-		Adapter: memory.New(),
-	})
 	authGroup := e.Group("/auth")
-	authGroup.GET("/providers", authService.GetProviders)
+	authGroup.GET("/providers", authService.Providers)
 	authGroup.GET("/login/:provider", authService.Login)
 	authGroup.GET("/callback/:provider", authService.Callback)
 	authGroup.GET("/session", authService.Session)

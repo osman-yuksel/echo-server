@@ -5,42 +5,38 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"strings"
 )
 
 var AUTH_SECRET = os.Getenv("AUTH_SECRET")
 
-// `size` is the base key size, not includes hash
-func GenerateVerificationToken(size int) string {
-	s := randomString(size)
-	h := hashVerificationKey(s)
-	return s + "|" + h
+func GenerateHMACToken(size int) string {
+	randomStr := generateRandomString(size)
+	hash := createHMACHash(randomStr)
+	return fmt.Sprintf("%s|%s", randomStr, hash)
 }
 
-func VerifyVerificationToken(token string) bool {
+func VerifyHMACToken(token string) bool {
 	parts := strings.Split(token, "|")
 	if len(parts) != 2 {
 		return false
 	}
-
-	h := hashVerificationKey(parts[0])
-	return h == parts[1]
+	return createHMACHash(parts[0]) == parts[1]
 }
 
-// hashVerificationKey creates an HMAC hash of the input string using the secret key
-func hashVerificationKey(s string) string {
+func createHMACHash(input string) string {
 	secretKey := []byte(AUTH_SECRET)
 	h := hmac.New(sha256.New, secretKey)
-	h.Write([]byte(s))
+	h.Write([]byte(input))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func randomString(size int) string {
-	b := make([]byte, size)
-	_, err := rand.Read(b)
-	if err != nil {
+func generateRandomString(size int) string {
+	bytes := make([]byte, size)
+	if _, err := rand.Read(bytes); err != nil {
 		panic(err)
 	}
-	return hex.EncodeToString(b)[:size]
+	return hex.EncodeToString(bytes)[:size]
 }

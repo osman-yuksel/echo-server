@@ -1,6 +1,6 @@
 # Project echo-server
 
-One Paragraph of project description goes here
+Go Echo server with authentication service
 
 ## Getting Started
 
